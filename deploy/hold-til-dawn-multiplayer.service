@@ -1,0 +1,19 @@
+[Unit]
+Description=Hold 'til Dawn multiplayer directory
+After=network.target
+
+[Service]
+Type=exec
+User=htd
+Group=htd
+WorkingDirectory=/opt/hold-til-dawn/multiplayer-server
+EnvironmentFile=/etc/hold-til-dawn/multiplayer.conf
+ExecStart=/opt/hold-til-dawn/node/bin/node dist/src/server.js
+Restart=on-failure
+RestartSec=1s
+TimeoutStopSec=20s
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

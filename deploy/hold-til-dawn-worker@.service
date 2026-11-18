@@ -1,0 +1,14 @@
+[Unit]
+Description=Hold 'til Dawn match worker on UDP %i
+After=network.target
+
+[Service]
+Type=exec
+User=htd
+Group=htd
+WorkingDirectory=/opt/hold-til-dawn/multiplayer-server
+EnvironmentFile=/etc/hold-til-dawn/multiplayer.conf
+ExecStart=/opt/hold-til-dawn/node/bin/node dist/src/unit-worker.js %i
+TimeoutStopSec=4s
+NoNewPrivileges=true
+UMask=0077

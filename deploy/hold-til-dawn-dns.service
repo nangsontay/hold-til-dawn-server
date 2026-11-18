@@ -1,0 +1,12 @@
+[Unit]
+Description=Update Hold 'til Dawn public IPv4 DNS
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/hold-til-dawn/ddns.conf
+ExecStart=/opt/hold-til-dawn/deploy/update-dns.sh
+TimeoutStartSec=90s
+NoNewPrivileges=true
+UMask=0077

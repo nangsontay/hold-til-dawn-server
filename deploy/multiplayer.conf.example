@@ -1,0 +1,8 @@
+WORKER_SUPERVISOR=systemd
+WORKER_STATE_DIR=/var/lib/hold-til-dawn/workers
+WORKER_EXECUTABLE=/opt/hold-til-dawn/game/Hold-til-Dawn-Server.x86_64
+ADMISSION_SECRET_FILE=/etc/hold-til-dawn/worker.key
+CONTROL_ENDPOINT=127.0.0.1:2569
+LOBBY_PORT=2567
+LOBBY_URL=wss://game.example.com
+WORKER_HOST=game.example.com

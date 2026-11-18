@@ -1,0 +1,7 @@
+polkit.addRule(function(action, subject) {
+  if (action.id === 'org.freedesktop.systemd1.manage-units' && subject.user === 'htd' &&
+      /^hold-til-dawn-worker@(7778|7779|7780)\.service$/.test(action.lookup('unit')) &&
+      /^(start|stop)$/.test(action.lookup('verb'))) {
+    return polkit.Result.YES;
+  }
+});

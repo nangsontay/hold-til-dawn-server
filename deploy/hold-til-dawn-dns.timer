@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh Hold 'til Dawn public IPv4 DNS
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=5min
+
+[Install]
+WantedBy=timers.target

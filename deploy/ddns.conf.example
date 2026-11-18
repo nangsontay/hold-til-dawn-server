@@ -1,0 +1,5 @@
+DDNS_NAME=game.example.com
+DDNS_ZONE=example.com
+DDNS_SERVER=ns.example.com
+DDNS_KEY_FILE=/etc/hold-til-dawn/ddns.key
+DDNS_IP_URL=https://api.ipify.org
