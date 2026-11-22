@@ -46,7 +46,7 @@ docker compose --profile bootstrap up -d bootstrap
 docker compose --profile production run --rm --no-deps --entrypoint certbot certbot certonly --webroot -w /var/www/letsencrypt -d game.example.com --email you@example.com --agree-tos --no-eff-email
 docker compose --profile bootstrap stop bootstrap
 docker compose --profile production run --rm --no-deps --user root --entrypoint sh init -c 'mkdir -p /state; touch /state/drain; chown 1000:1000 /state /state/drain; chmod 700 /state; chmod 600 /state/drain'
-docker compose --profile production up -d
+docker compose --profile production up -d --wait
 deploy/docker-ops.sh check
 ```
 
@@ -58,6 +58,6 @@ For RFC 2136 DDNS, copy `deploy/ddns.conf.example` to `ddns.conf`, set its value
 
 `deploy/docker-ops.sh on` stops new admissions, `deploy/docker-ops.sh wait` waits for all leases to clear (optional timeout in seconds), and `deploy/docker-ops.sh shutdown` waits then stops the directory. `deploy/docker-ops.sh check` verifies directory compatibility and authenticated worker launch and close on all three slots while drained. Keep admissions closed if any check fails. `deploy/docker-ops.sh off` reopens admissions after staging and public client verification.
 
-For upgrade: drain and wait, edit `HTD_IMAGE` in `.env` to the new tag, run `docker compose --profile production up -d --no-deps --force-recreate directory`, reload nginx with `docker compose --profile production exec nginx nginx -s reload`, then run `deploy/docker-ops.sh check`. Verify matched clients over WSS and UDP before reopening. Roll back by editing the same `.env` value to the previous image tag and repeating, checking again while drained. The state volume preserves the drain flag; a container restart ends its child workers and live matches, unlike a systemd directory-only restart. Retain the old image and matching client artifacts.
+For upgrade: drain and wait, edit `HTD_IMAGE` in `.env` to the new tag, run `docker compose --profile production up -d --wait --no-deps --force-recreate directory`, reload nginx with `docker compose --profile production exec nginx nginx -s reload`, then run `deploy/docker-ops.sh check`. Verify matched clients over WSS and UDP before reopening. Roll back by editing the same `.env` value to the previous image tag and repeating, checking again while drained. The state volume preserves the drain flag; a container restart ends its child workers and live matches, unlike a systemd directory-only restart. Retain the old image and matching client artifacts.
 
 Inspect `docker compose --profile production logs -f directory nginx certbot` and, if enabled, `docker compose --profile ddns logs -f ddns`. Worker output is detached by the existing supervisor; directory allocation and release events remain in its logs. Do not expose keys in logs.
