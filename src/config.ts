@@ -28,7 +28,7 @@ export function readConfig(env = process.env) {
   const controlPort = Number(endpoint?.[1]);
   if (!integer(controlPort, 1, 65535) || controlPort === lobbyPort) throw Error('Invalid CONTROL_ENDPOINT');
   const lobbyHost = env.LOBBY_HOST ?? '127.0.0.1';
-  if (lobbyHost !== '127.0.0.1') throw Error('Invalid LOBBY_HOST');
+  if (lobbyHost !== '127.0.0.1' && lobbyHost !== '0.0.0.0') throw Error('Invalid LOBBY_HOST');
   const workerHost = env.WORKER_HOST ?? '127.0.0.1';
   if (!(isIP(workerHost) || /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(workerHost))) {
     throw Error('Invalid WORKER_HOST');
