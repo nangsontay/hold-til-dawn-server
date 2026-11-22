@@ -1,0 +1,7 @@
+services:
+  directory:
+    environment:
+      WORKER_HOST: 127.0.0.1
+      LOBBY_URL: !reset null
+    ports:
+      - "127.0.0.1:2567:2567"

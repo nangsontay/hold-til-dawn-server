@@ -1,0 +1,77 @@
+services:
+  init:
+    profiles: [local, production]
+    image: ${HTD_IMAGE:-hold-til-dawn:local}
+    platform: linux/amd64
+    user: root
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["mkdir -p /state /private; chown 1000:1000 /state /private; chmod 700 /state /private; cp /run/secrets/worker_key /private/worker.key; chown 1000:1000 /private/worker.key; chmod 600 /private/worker.key"]
+    secrets: [worker_key]
+    volumes:
+      - state:/state
+      - private:/private
+    restart: "no"
+  directory:
+    profiles: [local, production]
+    image: ${HTD_IMAGE:-hold-til-dawn:local}
+    platform: linux/amd64
+    init: true
+    depends_on:
+      init: {condition: service_completed_successfully}
+    environment:
+      WORKER_HOST: ${GAME_HOST:-127.0.0.1}
+      LOBBY_URL: wss://${GAME_HOST:-game.example.com}
+    volumes:
+      - state:/state
+      - private:/private:ro
+    ports:
+      - "7778-7780:7778-7780/udp"
+    stop_grace_period: 30s
+    restart: unless-stopped
+  nginx:
+    profiles: [production]
+    image: nginx:1.29.4-alpine@sha256:4870c12cd2ca986de501a804b4f506ad3875a0b1874940ba0a2c7f763f1855b2
+    depends_on: [directory]
+    environment:
+      GAME_HOST: ${GAME_HOST:-game.example.com}
+    entrypoint: ["/bin/sh", "/etc/nginx/nginx-loop.sh"]
+    volumes:
+      - ./docker/nginx.conf.template:/etc/nginx/htd.conf.template:ro
+      - ./docker/nginx-loop.sh:/etc/nginx/nginx-loop.sh:ro
+      - certificates:/etc/letsencrypt:ro
+      - acme:/var/www/letsencrypt:ro
+    ports: ["80:80", "443:443"]
+    restart: unless-stopped
+  bootstrap:
+    profiles: [bootstrap]
+    image: nginx:1.29.4-alpine@sha256:4870c12cd2ca986de501a804b4f506ad3875a0b1874940ba0a2c7f763f1855b2
+    volumes:
+      - ./docker/nginx-bootstrap.conf:/etc/nginx/conf.d/default.conf:ro
+      - acme:/var/www/letsencrypt:ro
+    ports: ["80:80"]
+  certbot:
+    profiles: [production]
+    image: certbot/certbot:v5.4.0@sha256:c23159d30afdd9c97960578aa4654f5901de6cae394958f894074dedd55e599d
+    entrypoint: /bin/sh
+    command: ["-c", "trap 'exit 0' TERM; while :; do certbot renew --webroot -w /var/www/letsencrypt; sleep 43200 & wait $$!; done"]
+    volumes:
+      - certificates:/etc/letsencrypt
+      - acme:/var/www/letsencrypt
+    restart: unless-stopped
+  ddns:
+    profiles: [ddns]
+    build:
+      context: .
+      dockerfile: docker/ddns.Dockerfile
+    volumes:
+      - ${DDNS_CONFIG:-./ddns.conf}:/config/ddns.conf:ro
+      - ${DDNS_KEY:-./ddns.key}:/config/ddns.key:ro
+    restart: unless-stopped
+secrets:
+  worker_key:
+    file: ${WORKER_KEY:-./worker.key}
+volumes:
+  state:
+  private:
+  certificates:
+  acme:

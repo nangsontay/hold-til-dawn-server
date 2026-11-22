@@ -1,3 +1,10 @@
 node_modules/
 dist/
 .runtime/
+.docker-build.*/
+*.key
+*.pem
+ddns.conf
+ddns.key
+.env*
+*.env*
