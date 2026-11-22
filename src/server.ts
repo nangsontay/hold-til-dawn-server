@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { debugMessage, defineRoom, defineServer } from '@colyseus/core';
+import { debugMessage, defineRoom, defineServer, matchMaker } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { readConfig } from './config.js';
 import { lobbyRoom } from './lobby-room.js';
@@ -8,6 +8,7 @@ import { WorkerManager } from './worker-manager.js';
 async function main() {
   // The transport's verbose message logger includes raw direct reply payloads.
   debugMessage.enabled = false;
+  matchMaker.controller.exposedMethods = ['joinOrCreate'];
   const config = readConfig();
   const manager = new WorkerManager(config);
   await manager.start();
