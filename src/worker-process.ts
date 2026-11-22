@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { createSocket } from 'node:dgram';
-import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, fchmodSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -21,10 +22,13 @@ export function readLease(config: Config, port: Port): Lease | undefined {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return;
     throw Error('Cannot read worker lease');
   }
-  const data: unknown = JSON.parse(raw);
+  let data: unknown;
+  try { data = JSON.parse(raw); } catch { /* Invalid content is preserved below. */ }
   if (!isObject(data) || !token(data.roomId) || !token(data.generation) ||
       typeof data.name !== 'string' || !integer(data.launchDeadline, 1) || !integer(data.creatorExpiry, 1)) {
-    throw Error('Invalid worker lease');
+    renameSync(leasePath(config, port), `${leasePath(config, port)}.invalid-${Date.now()}-${randomUUID()}`);
+    console.warn('Invalid worker lease for port %d; moved aside', port);
+    return;
   }
   return { roomId: data.roomId, generation: data.generation, name: data.name,
     launchDeadline: data.launchDeadline, creatorExpiry: data.creatorExpiry };
@@ -33,12 +37,21 @@ export function readLease(config: Config, port: Port): Lease | undefined {
 export function writeLease(config: Config, port: Port, lease?: Lease) {
   const path = leasePath(config, port);
   if (!lease) {
-    unlinkSync(path);
+    try { unlinkSync(path); } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    }
     return;
   }
   const tmp = path + '.writing';
-  writeFileSync(tmp, JSON.stringify(lease), { mode: 0o600 });
+  const fd = openSync(tmp, 'w', 0o600);
+  try {
+    fchmodSync(fd, 0o600);
+    writeFileSync(fd, JSON.stringify(lease));
+    fsyncSync(fd);
+  } finally { closeSync(fd); }
   renameSync(tmp, path);
+  const directory = openSync(config.stateDir, 'r');
+  try { fsyncSync(directory); } finally { closeSync(directory); }
 }
 
 export function workerCommand(config: Config, port: Port, lease: Lease) {
