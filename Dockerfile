@@ -6,13 +6,16 @@ COPY src ./src
 COPY test ./test
 RUN npm run build && npm prune --omit=dev --no-audit --no-fund && rm -rf dist/test
 
+FROM node:26.13.0@sha256:438603bbb5cda404b9416f0b5c8026f61501ab911760d861ec28c36b5d675725 AS godot-template
+# SHA-512 from godot-builds 4.7.2-stable/SHA512-SUMS.txt.
+RUN curl -fsSL https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz -o /tmp/templates.tpz \
+ && echo 'ca4d71c4d7b81dfc15d1a98baa07534aa95b03fdda78a0075b06672e1648d2e5f40980c9adc28d23e1b92e732ee7bf3461997aa804af74ec2fcd7a93ccb84079  /tmp/templates.tpz' | sha512sum -c - \
+ && unzip -p /tmp/templates.tpz templates/linux_release.x86_64 > /tmp/godot \
+ && chmod 755 /tmp/godot
+
 FROM node:26.13.0@sha256:438603bbb5cda404b9416f0b5c8026f61501ab911760d861ec28c36b5d675725
-RUN apt-get update && apt-get install -y --no-install-recommends procps libx11-6 libxcursor1 libxinerama1 libgl1 libasound2t64 unzip && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip -o /tmp/godot.zip \
- && echo 'cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4  /tmp/godot.zip' | sha256sum -c - \
- && unzip -p /tmp/godot.zip Godot_v4.7.2-stable_linux.x86_64 > /usr/local/bin/godot \
- && chmod 755 /usr/local/bin/godot && rm /tmp/godot.zip \
- && test "$(godot --headless --version)" = '4.7.2.stable.official.ed1daf0bf'
+COPY --from=godot-template /tmp/godot /app/Hold-til-Dawn-Server.x86_64
+RUN test "$(/app/Hold-til-Dawn-Server.x86_64 --headless --version)" = '4.7.2.stable.official.ed1daf0bf'
 WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist

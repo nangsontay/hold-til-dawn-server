@@ -1,2 +1,2 @@
 #!/bin/sh
-exec /usr/local/bin/godot --main-pack /app/Hold-til-Dawn-Server.pck "$@"
+exec /app/Hold-til-Dawn-Server.x86_64 "$@"
