@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { Ajv2020 } from 'ajv/dist/2020.js';
 import { Protocol } from '@colyseus/shared-types';
 import { decode, encode } from '@colyseus/schema';
 import { pack, unpack } from 'msgpackr';
@@ -29,6 +30,89 @@ type Watched = { process: ChildProcess; text: string };
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const godot = process.env.GODOT_BIN ?? '/Applications/Godot.app/Contents/MacOS/Godot';
+
+const controlSchema = JSON.parse(readFileSync(join(root, 'multiplayer/worker-control.schema.json'), 'utf8')) as {
+  '$defs': Record<string, object>;
+  'x-protocol': {
+    managerCommands: Record<string, object>;
+    workerEvents: Record<string, object>;
+  };
+};
+const ajv = new Ajv2020({ allErrors: true });
+const definitions = { '$defs': controlSchema['$defs'] };
+const managerTypes = new Set(Object.keys(controlSchema['x-protocol'].managerCommands));
+const workerTypes = new Set(Object.keys(controlSchema['x-protocol'].workerEvents));
+const payloadValidator = (group: 'managerCommands' | 'workerEvents', type: string) => {
+  const entry = controlSchema['x-protocol'][group][type];
+  const schema = { ...definitions, ...entry, description: undefined };
+  delete schema.description;
+  return ajv.compile(schema);
+};
+const managerPayloads = new Map(Object.entries(controlSchema['x-protocol'].managerCommands)
+  .map(([type]) => [type, payloadValidator('managerCommands', type)]));
+const workerPayloads = new Map(Object.entries(controlSchema['x-protocol'].workerEvents)
+  .map(([type]) => [type, payloadValidator('workerEvents', type)]));
+const frameViolations: string[] = [];
+const validateFrame = (direction: 'worker' | 'manager', envelope: string) => {
+  const record: unknown = JSON.parse(envelope);
+  if (!Array.isArray(record) || record.length !== 9 || record.some(value => typeof value !== 'string')) {
+    frameViolations.push(`frame from ${direction} is not a 9-element string envelope: ${envelope.slice(0, 200)}`);
+    return;
+  }
+  const [version, frameDirection, , , , , type, body] = record;
+  const payloads = direction === 'worker' ? workerPayloads : managerPayloads;
+  const role = direction === 'worker' ? 'worker event' : 'manager command';
+  if (version !== '1' || frameDirection !== direction) {
+    frameViolations.push(`frame from ${direction} has direction ${frameDirection} with version ${version}`);
+    return;
+  }
+  if (!(direction === 'worker' ? workerTypes : managerTypes).has(type)) {
+    frameViolations.push(`frame type ${type} from direction ${direction} is not a documented ${role}`);
+    return;
+  }
+  const data: unknown = JSON.parse(Buffer.from(body, 'base64').toString('utf8'));
+  const validate = payloads.get(type);
+  if (validate && !validate(data)) {
+    frameViolations.push(`payload of ${role} ${type} from direction ${direction} violates the schema: ${
+      JSON.stringify(validate.errors).slice(0, 600)} for body ${body.slice(0, 120)}`);
+  }
+};
+interface FrameAccumulator {
+  counts: Map<string, number>;
+  receive(chunk: string | Buffer): void;
+}
+const frameChecks = (direction: 'worker' | 'manager'): FrameAccumulator => {
+  const counts = new Map<string, number>();
+  let pending = Buffer.alloc(0);
+  let broken = false;
+  return {
+    counts,
+    receive(chunk: string | Buffer) {
+      pending = Buffer.concat([pending, Buffer.from(chunk)]);
+      while (!broken && pending.length >= 4) {
+        const size = pending.readUInt32BE(0);
+        if (size < 1 || size > 8192) {
+          frameViolations.push(`frame from ${direction} declares ${size} bytes, outside 1 to 8192`);
+          broken = true;
+          break;
+        }
+        if (pending.length < 4 + size) break;
+        const envelope = pending.subarray(4, 4 + size).toString('utf8');
+        pending = pending.subarray(4 + size);
+        try {
+          validateFrame(direction, envelope);
+        } catch (error) {
+          frameViolations.push(`frame from ${direction} failed to decode: ${(error as Error).message} for ${envelope.slice(0, 120)}`);
+          broken = true;
+          break;
+        }
+        const type = JSON.parse(envelope)[6] as string;
+        counts.set(type, (counts.get(type) ?? 0) + 1);
+      }
+      if (broken) pending = Buffer.alloc(0);
+    },
+  };
+};
 
 async function waitFor<T>(label: string, check: () => T | false | undefined, timeout = 8000): Promise<T> {
   const end = performance.now() + timeout;
@@ -202,15 +286,23 @@ test('directory with real Colyseus connections and Godot workers', { timeout: 14
   const controlPort = await unusedPort();
   let dropControl = false;
   let lastControl = 0;
+  type RelayedChecks = { worker: FrameAccumulator; manager: FrameAccumulator };
+  const relayedCounts: RelayedChecks[] = [];
   const relay = createServer(worker => {
     const manager = connect(controlPort, '127.0.0.1');
+    const checks = { worker: frameChecks('worker'), manager: frameChecks('manager') };
+    relayedCounts.push(checks);
     worker.on('data', data => {
+      checks.worker.receive(data);
       if (!dropControl && !manager.destroyed) {
         lastControl = performance.now();
         manager.write(data);
       }
     });
     manager.pipe(worker);
+    manager.on('data', data => {
+      checks.manager.receive(data);
+    });
     worker.on('error', () => worker.destroy()).once('close', () => manager.destroy());
     manager.on('error', () => manager.destroy()).once('close', () => worker.destroy());
   }).listen(0, '127.0.0.1');
@@ -582,6 +674,23 @@ test('directory with real Colyseus connections and Godot workers', { timeout: 14
     assert(!sockets.filter(client => client !== drop).some(client => client.messages.some(item =>
       item.type === 'admission' && 'ticketId' in item.data && item.data.ticketId === unclaimed.ticketId)),
       'An unrelated connection received the creator ticket');
+    assert(frameViolations.length === 0, `Relayed control frames violated worker-control.schema.json:\n${frameViolations.join('\n')}`);
+    const observed = (direction: 'worker' | 'manager') => {
+      const totals = new Map<string, number>();
+      for (const counts of relayedCounts) {
+        for (const [type, count] of counts[direction].counts) totals.set(type, (totals.get(type) ?? 0) + count);
+      }
+      return totals;
+    };
+    const totals = { worker: observed('worker'), manager: observed('manager') };
+    t.diagnostic(`relayed worker frames ${JSON.stringify(Object.fromEntries(totals.worker))}`);
+    t.diagnostic(`relayed manager frames ${JSON.stringify(Object.fromEntries(totals.manager))}`);
+    assert([...totals.worker.values()].reduce((sum, count) => sum + count, 0) > 0, 'No worker frames were validated');
+    assert([...totals.manager.values()].reduce((sum, count) => sum + count, 0) > 0, 'No manager frames were validated');
+    for (const type of ['hello', 'challenge', 'register', 'registered', 'ready', 'heartbeat', 'ping', 'reserve', 'reservation']) {
+      const direction = ['challenge', 'registered', 'ping', 'reserve'].includes(type) ? 'manager' : 'worker';
+      assert((totals[direction].get(type) ?? 0) > 0, `No relayed ${type} frame was validated`);
+    }
   } finally {
     sockets.forEach(client => client.close());
     if (manager && manager.process.exitCode === null && manager.process.signalCode === null) {
