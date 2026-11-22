@@ -24,7 +24,8 @@ type Credential = { roomId: string; generation: string; udpEndpoint: { host: str
 export type Reply = { code: string; ticket?: Credential };
 export type Operation = { roomId?: string; name: string; role: number; identity: string; requestId: string;
   expiresAt?: number; slot?: Slot; lease?: Lease; cancelled?: boolean; onRoomStarted?: () => void };
-type Reservation = { operation: Operation; expiresAt: number; finish?: (reply: Reply) => void };
+type Reservation = { operation: Operation; expiresAt: number; finish?: (reply: Reply) => void;
+  settled?: 'delivered' | 'without-ticket' };
 type Probe = { lease?: Lease; at: number; result?: Owner; pending?: Promise<Owner> };
 type Slot = {
   port: Port; status: 'recovering' | 'free' | 'starting' | 'owned'; lease?: Lease; pid?: number;
@@ -196,7 +197,7 @@ export class WorkerManager extends EventEmitter {
         if (type === 'ready') {
           if (slot.stopAt !== undefined) control.send('close');
           else for (const [requestId, reservation] of slot.reservations) {
-            if (reservation.operation.cancelled) control.send('cancel', { requestId });
+            if (reservation.operation.cancelled || reservation.settled === 'without-ticket') control.send('cancel', { requestId });
           }
         }
         this.publish();
@@ -237,7 +238,7 @@ export class WorkerManager extends EventEmitter {
     const reservation = slot.reservations.get(data.requestId);
     if (!reservation) return;
     const { operation, finish } = reservation;
-    if (operation.cancelled) {
+    if (operation.cancelled || reservation.settled === 'without-ticket') {
       if (data.code === 'reserved') slot.control?.send('cancel', { requestId: data.requestId });
       return;
     }
@@ -246,8 +247,9 @@ export class WorkerManager extends EventEmitter {
       return;
     }
     if (!hex(data.ticketId, 32) || !hex(data.secret, 64) || !integer(data.ttlMs, 1, this.config.ticketMs)) throw Error();
-    if (!this.online(slot) || slot.snapshot?.state !== 'waiting') {
-      finish?.({ code: 'unavailable' });
+    if (finish && (Date.now() >= reservation.expiresAt || !this.online(slot) || slot.snapshot?.state !== 'waiting')) {
+      finish({ code: Date.now() >= reservation.expiresAt ? 'expired' : 'unavailable' });
+      slot.control?.send('cancel', { requestId: data.requestId });
       return;
     }
     finish?.({ code: 'reserved', ticket: {
@@ -271,7 +273,8 @@ export class WorkerManager extends EventEmitter {
     for (const [id, reservation] of slot.reservations) {
       if (now >= reservation.expiresAt) {
         reservation.finish?.({ code: 'expired' });
-        slot.reservations.delete(id);
+        // Retain the outcome through the control heartbeat deadline for late replies.
+        if (now >= reservation.expiresAt + heartbeatMs) slot.reservations.delete(id);
       }
     }
     const lease = slot.lease;
@@ -334,6 +337,7 @@ export class WorkerManager extends EventEmitter {
       function finish(reply: Reply) {
         clearTimeout(timer);
         reservation.finish = undefined;
+        reservation.settled = reply.ticket ? 'delivered' : 'without-ticket';
         resolve(reply);
       }
     });

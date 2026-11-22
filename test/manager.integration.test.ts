@@ -81,7 +81,7 @@ interface FrameAccumulator {
   counts: Map<string, number>;
   receive(chunk: string | Buffer): void;
 }
-const frameChecks = (direction: 'worker' | 'manager'): FrameAccumulator => {
+const frameChecks = (direction: 'worker' | 'manager', observe?: (type: string, data: Record<string, unknown>) => void): FrameAccumulator => {
   const counts = new Map<string, number>();
   let pending = Buffer.alloc(0);
   let broken = false;
@@ -106,7 +106,9 @@ const frameChecks = (direction: 'worker' | 'manager'): FrameAccumulator => {
           broken = true;
           break;
         }
-        const type = JSON.parse(envelope)[6] as string;
+        const record = JSON.parse(envelope);
+        const type = record[6] as string;
+        observe?.(type, JSON.parse(Buffer.from(record[7], 'base64').toString('utf8')));
         counts.set(type, (counts.get(type) ?? 0) + 1);
       }
       if (broken) pending = Buffer.alloc(0);
@@ -286,17 +288,42 @@ test('directory with real Colyseus connections and Godot workers', { timeout: 14
   const controlPort = await unusedPort();
   let dropControl = false;
   let lastControl = 0;
+  let holdNextReservation = false;
+  let heldRequestId = '';
+  let releaseHeld: (() => void) | undefined;
+  const cancelledRequests: string[] = [];
+  const pendingCounts: unknown[] = [];
   type RelayedChecks = { worker: FrameAccumulator; manager: FrameAccumulator };
   const relayedCounts: RelayedChecks[] = [];
   const relay = createServer(worker => {
     const manager = connect(controlPort, '127.0.0.1');
-    const checks = { worker: frameChecks('worker'), manager: frameChecks('manager') };
+    const checks = { worker: frameChecks('worker', (type, data) => {
+      if (type === 'heartbeat') pendingCounts.push(data.pending);
+    }), manager: frameChecks('manager', (type, data) => {
+      if (type === 'cancel' && typeof data.requestId === 'string') cancelledRequests.push(data.requestId);
+    }) };
     relayedCounts.push(checks);
+    let incoming = Buffer.alloc(0);
+    let held: Buffer[] | undefined;
     worker.on('data', data => {
       checks.worker.receive(data);
       if (!dropControl && !manager.destroyed) {
         lastControl = performance.now();
-        manager.write(data);
+        incoming = Buffer.concat([incoming, Buffer.from(data)]);
+        while (incoming.length >= 4 && incoming.length >= 4 + incoming.readUInt32BE(0)) {
+          const size = 4 + incoming.readUInt32BE(0);
+          const frame = incoming.subarray(0, size);
+          incoming = incoming.subarray(size);
+          const record = JSON.parse(frame.subarray(4).toString('utf8'));
+          if (holdNextReservation && record[6] === 'reservation') {
+            holdNextReservation = false;
+            heldRequestId = JSON.parse(Buffer.from(record[7], 'base64').toString('utf8')).requestId;
+            held = [];
+            releaseHeld = () => { for (const chunk of held ?? []) manager.write(chunk); held = undefined; };
+          }
+          if (held) held.push(frame);
+          else manager.write(frame);
+        }
       }
     });
     manager.pipe(worker);
@@ -455,6 +482,19 @@ test('directory with real Colyseus connections and Godot workers', { timeout: 14
     await observer.list(list => room(list, alice.roomId)?.available === 4);
     assert(!canceller.messages.some(item => item.type === 'admission' &&
       'requestId' in item.data && item.data.requestId === 'cancel-queued'));
+
+    const late = await enter();
+    const beforeHold = lastControl;
+    await waitFor('heartbeat before delayed reservation', () => lastControl > beforeHold);
+    holdNextReservation = true;
+    const lateReply = await request(late, 'join', 'DelayedReply', alice.roomId);
+    assert.equal(lateReply.error?.code, 'unavailable');
+    assert(heldRequestId && releaseHeld, 'Worker reservation was held by the relay');
+    releaseHeld();
+    await waitFor('cancel of delayed reservation', () => cancelledRequests.includes(heldRequestId), 1000);
+    const heartbeatCount = pendingCounts.length;
+    await waitFor('seat released after delayed reservation', () => pendingCounts.slice(heartbeatCount).includes(0), 1500);
+    late.close();
 
     const activeHost = await enter();
     const active = ticket(await request(activeHost, 'create', 'Carol'));
