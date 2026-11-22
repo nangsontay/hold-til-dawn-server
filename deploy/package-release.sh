@@ -10,7 +10,10 @@ release=$2
 host=$3
 printf '%s\n' "$release" | LC_ALL=C grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]*$'
 printf '%s\n' "$host" | LC_ALL=C grep -Eq '^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,63}$'
-[ ! -e "$output" ] && [ ! -L "$output" ]
+if [ -e "$output" ] || [ -L "$output" ]; then
+    echo "Output path already exists: $output" >&2
+    exit 1
+fi
 output=$(cd "$(dirname "$output")" && pwd)/$(basename "$output")
 root=$(cd "$(dirname "$0")/../.." && pwd)
 deploy=$root/multiplayer-server/deploy
