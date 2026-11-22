@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
-cd "$(dirname "$0")/.."
+self=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
+cd "$(dirname "$self")/.."
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:-production}
 if [ "$COMPOSE_PROFILES" = local ]; then
   export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-hold-til-dawn-local}
@@ -21,7 +22,7 @@ case "${1:-}" in
       remaining=$((remaining - 1)); sleep 1
     done ;;
   check)
-    "$0" wait 0
+    "$self" wait 0
     docker compose exec -T directory node dist/src/check-directory-compatibility.js
     docker compose exec -T directory sh -c 'kill -USR2 "$(pgrep -f "^node .*dist/src/server.js$")"'
     seen=0
