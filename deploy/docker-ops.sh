@@ -2,6 +2,10 @@
 set -eu
 cd "$(dirname "$0")/.."
 export COMPOSE_PROFILES=${COMPOSE_PROFILES:-production}
+if [ "$COMPOSE_PROFILES" = local ]; then
+  export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-hold-til-dawn-local}
+  export HTD_IMAGE=${HTD_IMAGE:-hold-til-dawn:local} GAME_HOST=${GAME_HOST:-127.0.0.1}
+fi
 case "${1:-}" in
   on) docker compose exec -T directory sh -c 'umask 077; touch /state/drain' ;;
   off) docker compose exec -T directory rm -f /state/drain ;;

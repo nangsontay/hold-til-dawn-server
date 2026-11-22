@@ -1,7 +1,7 @@
 services:
   init:
     profiles: [local, production]
-    image: ${HTD_IMAGE:-hold-til-dawn:local}
+    image: ${HTD_IMAGE:?Set HTD_IMAGE in .env}
     platform: linux/amd64
     user: root
     entrypoint: ["/bin/sh", "-ec"]
@@ -13,27 +13,37 @@ services:
     restart: "no"
   directory:
     profiles: [local, production]
-    image: ${HTD_IMAGE:-hold-til-dawn:local}
+    image: ${HTD_IMAGE:?Set HTD_IMAGE in .env}
     platform: linux/amd64
     init: true
     depends_on:
       init: {condition: service_completed_successfully}
     environment:
-      WORKER_HOST: ${GAME_HOST:-127.0.0.1}
-      LOBBY_URL: wss://${GAME_HOST:-game.example.com}
+      WORKER_HOST: ${GAME_HOST:?Set GAME_HOST in .env}
+      LOBBY_URL: wss://${GAME_HOST:?Set GAME_HOST in .env}
     volumes:
       - state:/state
       - private:/private:ro
     ports:
       - "7778-7780:7778-7780/udp"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS http://127.0.0.1:2567/health | grep -Fq '"ready":true'
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
     stop_grace_period: 30s
     restart: unless-stopped
   nginx:
     profiles: [production]
     image: nginx:1.29.4-alpine@sha256:4870c12cd2ca986de501a804b4f506ad3875a0b1874940ba0a2c7f763f1855b2
-    depends_on: [directory]
+    depends_on:
+      directory: {condition: service_healthy}
     environment:
-      GAME_HOST: ${GAME_HOST:-game.example.com}
+      GAME_HOST: ${GAME_HOST:?Set GAME_HOST in .env}
     entrypoint: ["/bin/sh", "/etc/nginx/nginx-loop.sh"]
     volumes:
       - ./docker/nginx.conf.template:/etc/nginx/htd.conf.template:ro
