@@ -1,6 +1,7 @@
 [Unit]
 Description=Hold 'til Dawn match worker on UDP %i
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=exec
