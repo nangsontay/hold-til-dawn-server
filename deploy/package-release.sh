@@ -44,7 +44,10 @@ cp -R "$root"/art "$root"/fonts "$root"/maps "$root"/config "$root"/multiplayer 
 cp "$root"/project.godot "$root"/main.tscn "$root"/icon.svg "$root"/*.gd "$project/"
 cp "$root"/addons/colyseus/colyseus.gd "$project/addons/colyseus/"
 cp "$root"/addons/colyseus/LICENSE "$bundle/notices/colyseus-sdk.LICENSE"
-(cd "$root/addons/colyseus" && shasum -a 256 -c SHA256SUMS)
+(cd "$root/addons/colyseus" && shasum -a 256 -c SHA256SUMS) || {
+    echo 'Colyseus SDK binaries are missing or mismatched. Run python3 tools/fetch-colyseus-sdk.py from the repository root.' >&2
+    exit 1
+}
 cp "$root"/addons/colyseus/SHA256SUMS "$bundle/notices/colyseus-sdk.SHA256SUMS"
 find "$root/art" "$root/fonts" -type f \( -iname 'credits.txt' -o -iname '*ofl*' -o -iname '*license*' \) -print |
 while IFS= read -r notice; do
