@@ -10,8 +10,8 @@ context=$(mktemp -d "$server/.docker-build.XXXXXX")
 trap 'rm -rf "$work" "$context"' EXIT
 mkdir -p "$work/project/addons/colyseus"
 project=$work/project
-cp -R "$root"/art "$root"/fonts "$root"/maps "$root"/config "$root"/multiplayer "$project/"
-cp "$root"/project.godot "$root"/main.tscn "$root"/icon.svg "$root"/*.gd "$project/"
+cp -R "$root"/art "$root"/fonts "$root"/maps "$root"/config "$root"/multiplayer "$root"/src "$project/"
+cp "$root"/project.godot "$root"/main.tscn "$root"/icon.svg "$root"/icon.svg.import "$root"/*.gd "$root"/*.gd.uid "$project/"
 cp "$root"/addons/colyseus/colyseus.gd "$project/addons/colyseus/"
 (cd "$root/addons/colyseus" && shasum -a 256 -c SHA256SUMS)
 cp "$server/deploy/worker-export.cfg" "$project/export_presets.cfg"

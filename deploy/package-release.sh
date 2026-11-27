@@ -43,8 +43,8 @@ bundle=$work/release
 project=$work/project
 server=$bundle/multiplayer-server
 mkdir -p "$project/addons/colyseus" "$server" "$bundle/game" "$bundle/deploy" "$bundle/notices"
-cp -R "$root"/art "$root"/fonts "$root"/maps "$root"/config "$root"/multiplayer "$project/"
-cp "$root"/project.godot "$root"/main.tscn "$root"/icon.svg "$root"/*.gd "$project/"
+cp -R "$root"/art "$root"/fonts "$root"/maps "$root"/config "$root"/multiplayer "$root"/src "$project/"
+cp "$root"/project.godot "$root"/main.tscn "$root"/icon.svg "$root"/icon.svg.import "$root"/*.gd "$root"/*.gd.uid "$project/"
 cp "$root"/addons/colyseus/colyseus.gd "$project/addons/colyseus/"
 cp "$root"/addons/colyseus/LICENSE "$bundle/notices/colyseus-sdk.LICENSE"
 (cd "$root/addons/colyseus" && shasum -a 256 -c SHA256SUMS) || {
